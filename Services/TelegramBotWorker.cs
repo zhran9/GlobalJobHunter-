@@ -10,19 +10,12 @@ using Telegram.Bot.Types.Enums;
 
 namespace GlobalJobHunter.Service.Services;
 
-/// <summary>
-/// Background service that polls Telegram for new messages every 2 seconds.
-/// Handles /start  → registers user in DB and starts sending them job alerts.
-/// Handles /stop   → marks user inactive, stops alerts.
-/// Handles /status → tells user how many jobs were found.
-/// </summary>
 public sealed class TelegramBotWorker : BackgroundService
 {
     private readonly ITelegramBotClient _bot;
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly ILogger<TelegramBotWorker> _logger;
 
-    // Tracks the last update we processed so we don't re-process old messages
     private int _lastUpdateId = 0;
 
     public TelegramBotWorker(
@@ -57,27 +50,29 @@ public sealed class TelegramBotWorker : BackgroundService
                     if (update.Message is not { } message) continue;
                     if (message.Text is not { } text) continue;
 
-                    var chatId   = message.Chat.Id;
-                    var username = message.Chat.Username;
+                    var chatId    = message.Chat.Id;
+                    var username  = message.Chat.Username;
                     var firstName = message.Chat.FirstName ?? "there";
-                    var command  = text.Split(' ')[0].ToLowerInvariant().TrimEnd('@').Trim();
 
-                    _logger.LogInformation("[TelegramBotWorker] Received '{Command}' from {FirstName} (ChatId: {ChatId})", command, firstName, chatId);
+                    // FIX: Handle /start@BotName format (Telegram appends @BotName in group chats)
+                    var rawCommand = text.Split(' ')[0].ToLowerInvariant().Trim();
+                    var command    = rawCommand.Contains('@')
+                        ? rawCommand[..rawCommand.IndexOf('@')]
+                        : rawCommand;
+
+                    _logger.LogInformation("[TelegramBotWorker] Received '{Command}' from {FirstName} ({ChatId})", command, firstName, chatId);
 
                     switch (command)
                     {
                         case "/start":
                             await HandleStartAsync(chatId, username, firstName, ct);
                             break;
-
                         case "/stop":
                             await HandleStopAsync(chatId, firstName, ct);
                             break;
-
                         case "/status":
                             await HandleStatusAsync(chatId, ct);
                             break;
-
                         default:
                             await _bot.SendMessage(
                                 chatId: chatId,
@@ -92,27 +87,29 @@ public sealed class TelegramBotWorker : BackgroundService
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "[TelegramBotWorker] Error polling updates. Retrying in 5s...");
+                _logger.LogWarning(ex, "[TelegramBotWorker] Error polling updates. Retrying in 2s...");
             }
 
-            await Task.Delay(2_000, ct); // Poll every 2 seconds
+            // FIX: Wrap delay in try/catch so clean shutdown doesn't produce an error log
+            try { await Task.Delay(2_000, ct); }
+            catch (OperationCanceledException) { break; }
         }
 
         _logger.LogInformation("[TelegramBotWorker] Stopped.");
     }
 
-    // ── Command Handlers ────────────────────────────────────────────────────────
+    // ── Command Handlers ─────────────────────────────────────────────────────────
 
     private async Task HandleStartAsync(long chatId, string? username, string firstName, CancellationToken ct)
     {
         using var scope = _scopeFactory.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
 
-        var existing = await db.AppUsers.FindAsync([chatId], ct);
+        // FIX: Use explicit object[] to avoid ambiguous FindAsync overload
+        var existing = await db.AppUsers.FindAsync(new object[] { chatId }, ct);
 
         if (existing is null)
         {
-            // New user — register them
             db.AppUsers.Add(new AppUser
             {
                 ChatId       = chatId,
@@ -129,16 +126,15 @@ public sealed class TelegramBotWorker : BackgroundService
                 chatId: chatId,
                 text: $"🎉 *Welcome, {firstName}!*\n\n" +
                       "You're now registered for *GlobalJobHunter* alerts.\n\n" +
-                      "🤖 I scan the top job boards every *4 hours* looking for .NET & Fintech roles.\n\n" +
-                      "When I find a great match (AI score ≥ 65), I'll send it here instantly.\n\n" +
+                      "🤖 I scan the top job boards every *4 hours* looking for .NET and Fintech roles.\n\n" +
+                      "When I find a great match (AI score >= 65), I'll send it here instantly.\n\n" +
                       "📌 Commands:\n/stop — pause alerts\n/status — see bot stats",
                 parseMode: ParseMode.Markdown,
                 cancellationToken: ct);
         }
         else if (!existing.IsActive)
         {
-            // Returning user who had stopped
-            existing.IsActive = true;
+            existing.IsActive    = true;
             existing.LastAlertAt = null;
             await db.SaveChangesAsync(ct);
 
@@ -152,7 +148,6 @@ public sealed class TelegramBotWorker : BackgroundService
         }
         else
         {
-            // Already active
             await _bot.SendMessage(
                 chatId: chatId,
                 text: $"✅ You're already registered, {firstName}! I'll alert you when great .NET jobs appear.",
@@ -166,7 +161,8 @@ public sealed class TelegramBotWorker : BackgroundService
         using var scope = _scopeFactory.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
 
-        var user = await db.AppUsers.FindAsync([chatId], ct);
+        // FIX: Use explicit object[] to avoid ambiguous FindAsync overload
+        var user = await db.AppUsers.FindAsync(new object[] { chatId }, ct);
         if (user is not null)
         {
             user.IsActive = false;
@@ -203,5 +199,4 @@ public sealed class TelegramBotWorker : BackgroundService
             parseMode: ParseMode.Markdown,
             cancellationToken: ct);
     }
-
 }

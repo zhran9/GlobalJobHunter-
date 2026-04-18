@@ -77,15 +77,17 @@ public sealed class Worker : BackgroundService
 
             _logger.LogInformation("After 48h recency filter: {Count} jobs remain.", recentPostings.Count);
 
-            // ─── PHASE 3: DEDUPLICATE against SQLite ───
-            var newPostings = new List<JobPosting>();
+            // ─── PHASE 3: DEDUPLICATE against SQLite (single batch query) ───
+            var candidateUrls = recentPostings.Select(p => p.Url).Distinct().ToList();
+            var existingUrls = (await dbContext.JobRecords
+                .Where(j => candidateUrls.Contains(j.Url))
+                .Select(j => j.Url)
+                .ToListAsync(ct))
+                .ToHashSet();
 
-            foreach (var posting in recentPostings)
-            {
-                var exists = await dbContext.JobRecords.AnyAsync(j => j.Url == posting.Url, ct);
-                if (!exists)
-                    newPostings.Add(posting);
-            }
+            var newPostings = recentPostings
+                .Where(p => !existingUrls.Contains(p.Url))
+                .ToList();
 
             _logger.LogInformation("After dedup: {Count} new jobs to evaluate.", newPostings.Count);
 

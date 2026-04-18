@@ -57,32 +57,28 @@ public sealed class TelegramNotifierService : ITelegramNotifierService
 
         // ── Broadcast to all active users ──
         int sent = 0, failed = 0;
+        var successfulChatIds = new List<long>();
 
         foreach (var user in activeUsers)
         {
             ct.ThrowIfCancellationRequested();
 
             var success = await SendSafeAsync(user.ChatId, message, ct);
-            if (success)
-            {
-                sent++;
-                // Update last alert timestamp
-                using var scope = _scopeFactory.CreateScope();
-                var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-                var dbUser = await db.AppUsers.FindAsync([user.ChatId], ct);
-                if (dbUser is not null)
-                {
-                    dbUser.LastAlertAt = DateTime.UtcNow;
-                    await db.SaveChangesAsync(ct);
-                }
-            }
-            else
-            {
-                failed++;
-            }
+            if (success) { sent++; successfulChatIds.Add(user.ChatId); }
+            else         { failed++; }
 
             // Throttle — respect Telegram's 30 msg/sec global limit
             await Task.Delay(BroadcastDelayMs, ct);
+        }
+
+        // FIX: Batch-update LastAlertAt in ONE DB call instead of N scopes
+        if (successfulChatIds.Count > 0)
+        {
+            using var scope = _scopeFactory.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            await db.AppUsers
+                .Where(u => successfulChatIds.Contains(u.ChatId))
+                .ExecuteUpdateAsync(s => s.SetProperty(u => u.LastAlertAt, DateTime.UtcNow), ct);
         }
 
         _logger.LogInformation(

@@ -28,7 +28,7 @@ public sealed class WeWorkRemotelyProvider : IJobProvider
             client.DefaultRequestHeaders.UserAgent.ParseAdd(
                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36");
 
-            var stream = await client.GetStreamAsync(RssUrl, ct);
+            using var stream = await client.GetStreamAsync(RssUrl, ct);
 
             using var xmlReader = XmlReader.Create(stream, new XmlReaderSettings { Async = true });
             var feed = SyndicationFeed.Load(xmlReader);
