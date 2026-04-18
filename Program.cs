@@ -1,5 +1,6 @@
 using GlobalJobHunter.Service;
 using GlobalJobHunter.Service.Data;
+using GlobalJobHunter.Service.Models;
 using GlobalJobHunter.Service.Options;
 using GlobalJobHunter.Service.Providers;
 using GlobalJobHunter.Service.Services;
@@ -86,6 +87,26 @@ using (var scope = host.Services.CreateScope())
         );
         CREATE INDEX IF NOT EXISTS "IX_AppUsers_IsActive" ON "AppUsers" ("IsActive");
     """);
+
+    // Auto-seed the admin ChatId so they never need to /start after a fresh deploy.
+    // This is a safety net — if Railway volume is configured, users persist anyway.
+    var adminChatIdStr = builder.Configuration.GetSection("Telegram")["ChatId"];
+    if (long.TryParse(adminChatIdStr, out var adminChatId) && adminChatId != 0)
+    {
+        var adminExists = await db.AppUsers.AnyAsync(u => u.ChatId == adminChatId);
+        if (!adminExists)
+        {
+            db.AppUsers.Add(new AppUser
+            {
+                ChatId       = adminChatId,
+                Username     = "admin",
+                FirstName    = "Admin",
+                IsActive     = true,
+                RegisteredAt = DateTime.UtcNow
+            });
+            await db.SaveChangesAsync();
+        }
+    }
 }
 
 await host.RunAsync();
