@@ -1,0 +1,71 @@
+# ============================================================
+# GlobalJobHunter — CI/CD Pipeline
+# Triggered on every push to the "main" branch.
+# What it does:
+#   1. Checks out your code
+#   2. Logs in to Docker Hub
+#   3. Builds your Docker image
+#   4. Pushes the image to Docker Hub
+#   5. Triggers a re-deploy on Render.com
+# ============================================================
+
+name: Build & Deploy
+
+# ── When does this workflow run? ─────────────────────────────
+on:
+  push:
+    branches:
+      - main   # Only triggers when you push to the main branch
+
+# ── The actual work ─────────────────────────────────────────
+jobs:
+  build-and-deploy:
+    # Run on GitHub's free Ubuntu virtual machine
+    runs-on: ubuntu-latest
+
+    steps:
+      # ── Step 1: Get the code ──────────────────────────────
+      # "Checkout" = download your repo onto the GitHub runner VM.
+      # Without this, the VM has no code to work with.
+      - name: ⬇️ Checkout code
+        uses: actions/checkout@v4
+
+      # ── Step 2: Log in to Docker Hub ─────────────────────
+      # Docker Hub = the "app store" for Docker images.
+      # We store our built image there so the cloud can pull it.
+      # Credentials come from GitHub Secrets (never hardcoded!).
+      - name: 🔑 Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      # ── Step 3 & 4: Build + Push the Docker image ─────────
+      # "buildx" is Docker's modern build system with caching support.
+      # Tags the image as:
+      #   yourusername/globaljobhunter:latest   (always the newest)
+      #   yourusername/globaljobhunter:abc1234  (exact git commit SHA)
+      #
+      # The SHA tag is a safety net — you can roll back to any
+      # previous version by deploying a specific SHA tag.
+      - name: 🐳 Build & Push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          dockerfile: Dockerfile
+          push: true
+          tags: |
+            ${{ secrets.DOCKERHUB_USERNAME }}/globaljobhunter:latest
+            ${{ secrets.DOCKERHUB_USERNAME }}/globaljobhunter:${{ github.sha }}
+          # Cache layers from previous builds — makes builds much faster!
+          cache-from: type=registry,ref=${{ secrets.DOCKERHUB_USERNAME }}/globaljobhunter:buildcache
+          cache-to: type=registry,ref=${{ secrets.DOCKERHUB_USERNAME }}/globaljobhunter:buildcache,mode=max
+
+      # ── Step 5: Tell Render to re-deploy ──────────────────
+      # Render has a "Deploy Hook" URL. When we send an HTTP POST
+      # to that URL, Render automatically pulls the new image
+      # and restarts the container. Zero manual steps!
+      - name: 🚀 Trigger Render Deploy
+        run: |
+          curl --fail -X POST "${{ secrets.RENDER_DEPLOY_HOOK_URL }}"
+          echo "✅ Deploy triggered successfully"

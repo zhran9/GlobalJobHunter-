@@ -1,0 +1,34 @@
+# Don't copy these into the Docker build context — keeps builds fast
+
+# Build outputs (we compile inside Docker anyway)
+bin/
+obj/
+
+# Local data
+data/
+*.db
+*.db-shm
+*.db-wal
+
+# Secrets
+.env
+
+# Git history
+.git/
+.gitignore
+
+# Docker files themselves
+Dockerfile
+docker-compose.yml
+.dockerignore
+
+# IDE
+.vs/
+*.user
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Playwright local browsers (installed fresh inside the image)
+ms-playwright/

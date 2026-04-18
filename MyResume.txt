@@ -1,0 +1,55 @@
+Osama Zahran
+Backend .NET Developer (Mid-Level)
+Cairo | +20 1017622757 | ozahran267@gmail.com | LinkedIn
+
+Summary
+Backend .NET Developer currently working at Paysky, building and supporting large-scale payment platforms used in real production environments. I work daily on systems that handle high-throughput financial transactions, where performance, security, and reliability are critical. My experience spans payment switching, clearing, settlement workflows, and merchant management systems, with hands-on involvement in event-driven architecture.
+
+Experience
+
+Backend .NET Developer @PaySky | March 2025 - Present
+- Integrate Redis caching, Hangfire background jobs, and RabbitMQ / MassTransit for asynchronous processing and system reliability.
+- Apply Clean Architecture, CQRS, and DDD patterns within modular monolith and service-based systems using MediatR and Ardalis.ApiEndpoints.
+- Implement secure authentication and authorization using JWT, Keycloak (OAuth 2.0 / OpenID Connect), and role-based access control.
+- Design and implement multi-tenant, multi-language (EN / AR / FR) features and large-scale bulk operations for merchants, terminals, disputes, and refunds.
+- Configure Serilog, Elasticsearch, and centralized logging pipelines.
+- Dockerizing LIS / Posting file generation, SFTP transfers, and settlement & clearing workflows.
+
+Production Projects:
+
+PBL / Cube - Payment & Merchant Platform
+Worked on core backend services responsible for transaction processing, merchant and terminal management, and approval pipelines, bulk operations, multi-language support, and background processing using Hangfire. Supported REST-based integrations and maintained large SQL Server codebases in production environments.
+
+CTMS New UI - Merchant & Terminal Management Portal
+Contributed to merchant and terminal management portals built with ASP.NET MVC, focusing on backend integration, bulk uploads, approval flows, dashboards, logging, and RTL multi-language support while consuming Cube/PBL backend services.
+
+InvoiceCloud - Bill Payment & Aggregation Platform
+Worked on bill payment and aggregation services using ABP Framework, handling billers, payment orders, integrations with PayLink and LightBox, multi-currency support, and secure payment workflows across multiple hosted services.
+
+LightBox 2.0 - Payment Lightbox
+Participated in backend development for a payment lightbox solution integrated with Cube services, supporting real-time updates via SignalR, alongside an Angular-based frontend.
+
+Clearing Service - LIS File Generation & Transfer
+Developed services responsible for LIS / Posting file generation, settlement data processing, encryption, and secure SFTP transfers. Applied clean architecture principles and supported configurable, auditable clearing workflows.
+
+QR Switch - QR Payments & Request-to-Pay (R2P)
+Worked on QR payment and R2P services using .NET 8, CQRS, Keycloak, and RabbitMQ, supporting bulk merchant onboarding.
+
+Backend .NET Developer @NDM | March 2024 - March 2025
+- Developed and maintained ASP.NET Core backend services used in production business systems.
+- Implemented RESTful APIs and backend logic with a focus on clean architecture and performance.
+- Designed and optimized SQL Server schemas, queries, and stored procedures.
+- Contributed to systems handling transactional and financial data, ensuring accuracy and reliability.
+
+Technical Skills
+Backend & APIs: C#, ASP.NET Core, .NET 8/7/5, .NET Framework 4.7, Web API, gRPC, SignalR
+Architecture & Design: Clean Architecture, DDD, CQRS, MediatR, Modular Monolith, Ardalis.ApiEndpoints
+Data & Storage: SQL Server, Entity Framework 6 & Core, Dapper, Redis, Elasticsearch
+Security & Identity: JWT, OAuth 2.0, OpenID Connect, Keycloak, ASP.NET Identity, Thales HSM
+Messaging & Background Processing: RabbitMQ, MassTransit, Hangfire
+DevOps & Tools: Docker, IIS, Git, GitHub, Serilog, FluentValidation, Swagger
+Payments & FinTech: ISO 8583, Switching, Clearing, Settlement, R2P
+
+Education
+Bachelor of Computer Science
+Fayoum University | May 2022

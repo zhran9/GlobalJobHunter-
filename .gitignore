@@ -1,0 +1,25 @@
+## .NET
+bin/
+obj/
+*.user
+*.suo
+*.cache
+.vs/
+
+## Project-specific
+appsettings.Development.json
+*.db
+*.db-shm
+*.db-wal
+data/
+
+## Secrets — NEVER commit
+.env
+appsettings.Local.json
+
+## Playwright browsers cache
+ms-playwright/
+
+## OS
+.DS_Store
+Thumbs.db

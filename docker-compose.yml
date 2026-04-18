@@ -1,0 +1,36 @@
+version: "3.9"
+
+services:
+  globaljobhunter:
+    # Build from local Dockerfile (for local testing)
+    build:
+      context: .
+      dockerfile: Dockerfile
+
+    # Container name for easy reference
+    container_name: globaljobhunter
+
+    # Always restart if it crashes (important for a 24/7 worker)
+    restart: unless-stopped
+
+    # Volume mapping: host folder ./data → container path /app/data
+    # jobs.db will be stored at ./data/jobs.db on your machine
+    # It survives container restarts, rebuilds, and re-deploys
+    volumes:
+      - ./data:/app/data
+
+    # Override appsettings.json values via environment variables.
+    # Format: Section__Key (double underscore = colon in config)
+    # Replace the values below with your real credentials.
+    environment:
+      - DOTNET_ENVIRONMENT=Production
+      - AI__ApiKey=${GROQ_API_KEY}
+      - Telegram__BotToken=${TELEGRAM_BOT_TOKEN}
+      - Telegram__ChatId=${TELEGRAM_CHAT_ID}
+
+    # Optional: see logs in real time with: docker compose logs -f
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
