@@ -4,6 +4,7 @@ using GlobalJobHunter.Service.Options;
 using GlobalJobHunter.Service.Providers;
 using GlobalJobHunter.Service.Services;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Infrastructure;
 using Telegram.Bot;
 
 var builder = Host.CreateApplicationBuilder(args);
@@ -13,8 +14,6 @@ builder.Services.Configure<TelegramOptions>(builder.Configuration.GetSection(Tel
 builder.Services.Configure<AiOptions>(builder.Configuration.GetSection(AiOptions.SectionName));
 
 // ─── Database (SQLite) ───
-// In production (Docker), the DB lives at /app/data/jobs.db (mounted volume).
-// Locally it falls back to jobs.db in the working directory.
 var connectionString = builder.Configuration.GetConnectionString("DefaultConnection")
                        ?? "Data Source=jobs.db";
 builder.Services.AddDbContext<AppDbContext>(options =>
@@ -49,16 +48,44 @@ builder.Services.AddSingleton<ITelegramBotClient>(sp =>
     return new TelegramBotClient(botToken);
 });
 
-// ─── Worker ───
+// ─── Workers ───
 builder.Services.AddHostedService<Worker>();
+builder.Services.AddHostedService<TelegramBotWorker>(); // handles /start, /stop commands
 
 var host = builder.Build();
 
-// ─── Ensure database is created ───
+// ─── Ensure database is created + migrate AppUsers table safely ───
 using (var scope = host.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+
+    // Ensure the directory exists before SQLite tries to create the file.
+    // On Railway: /app/data/ (volume mount)
+    // On Windows locally: current directory (jobs.db) — no folder needed
+    var dbPath = db.Database.GetDbConnection().DataSource;
+    if (!string.IsNullOrWhiteSpace(dbPath))
+    {
+        var dir = Path.GetDirectoryName(dbPath);
+        if (!string.IsNullOrWhiteSpace(dir))
+            Directory.CreateDirectory(dir);
+    }
+
+    // Creates the full DB if it doesn't exist yet (new installs)
     await db.Database.EnsureCreatedAsync();
+
+    // For existing DBs (Railway already has jobs.db), create AppUsers if missing.
+    // CREATE TABLE IF NOT EXISTS is idempotent — safe to run every startup.
+    await db.Database.ExecuteSqlRawAsync("""
+        CREATE TABLE IF NOT EXISTS "AppUsers" (
+            "ChatId"        INTEGER NOT NULL CONSTRAINT "PK_AppUsers" PRIMARY KEY,
+            "Username"      TEXT    NULL,
+            "FirstName"     TEXT    NULL,
+            "IsActive"      INTEGER NOT NULL DEFAULT 1,
+            "RegisteredAt"  TEXT    NOT NULL,
+            "LastAlertAt"   TEXT    NULL
+        );
+        CREATE INDEX IF NOT EXISTS "IX_AppUsers_IsActive" ON "AppUsers" ("IsActive");
+    """);
 }
 
 await host.RunAsync();
