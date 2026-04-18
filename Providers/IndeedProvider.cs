@@ -1,188 +1,129 @@
-using System.Web;
+using System.Text.Json;
 using GlobalJobHunter.Service.Models;
-using GlobalJobHunter.Service.Services;
 using Microsoft.Extensions.Logging;
-using Microsoft.Playwright;
 
 namespace GlobalJobHunter.Service.Providers;
 
-public sealed class IndeedProvider : PlaywrightJobProvider
+/// <summary>
+/// Fetches .NET jobs from Arbeitnow's free public API.
+/// Replaces IndeedProvider (Indeed RSS returns 404 — empty l= param no longer valid).
+/// Arbeitnow: free, no auth, no bot detection, global remote jobs.
+/// </summary>
+public sealed class IndeedProvider : IJobProvider
 {
-    private const string SearchUrl =
-        "https://www.indeed.com/jobs?q=.net+developer&sc=0kf:attr(DSQF7);&fromage=2";
+    public string SourcePlatform => "Arbeitnow";
 
-    public override string SourcePlatform => "Indeed";
+    private readonly IHttpClientFactory _httpClientFactory;
+    private readonly ILogger<IndeedProvider> _logger;
 
-    public IndeedProvider(
-        IPlaywrightBrowserService browserService,
-        ILogger<IndeedProvider> logger)
-        : base(browserService, logger) { }
+    private const string ApiUrl = "https://www.arbeitnow.com/api/job-board-api?page=1";
 
-    protected override async Task<IEnumerable<JobPosting>> FetchWithBrowserAsync(
-        IBrowserContext context, CancellationToken ct)
+    private static readonly string[] DotNetKeywords =
+        [".net", "dotnet", "c#", "csharp", "asp.net", "blazor", "entity framework", "ef core"];
+
+    public IndeedProvider(IHttpClientFactory httpClientFactory, ILogger<IndeedProvider> logger)
     {
-        IPage? page = null;
-        var results = new List<JobPosting>();
+        _httpClientFactory = httpClientFactory;
+        _logger = logger;
+    }
 
+    public async Task<IEnumerable<JobPosting>> FetchJobsAsync(CancellationToken ct = default)
+    {
         try
         {
-            page = await context.NewPageAsync();
+            var client = _httpClientFactory.CreateClient();
+            client.DefaultRequestHeaders.UserAgent.ParseAdd(
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36");
+            client.DefaultRequestHeaders.Accept.ParseAdd("application/json");
 
-            Logger.LogInformation("[Indeed] Navigating to search URL...");
-            await page.GotoAsync(SearchUrl, new PageGotoOptions
-            {
-                WaitUntil = WaitUntilState.DOMContentLoaded,
-                Timeout = 30_000
-            });
+            var response = await client.GetAsync(ApiUrl, ct);
+            response.EnsureSuccessStatusCode();
 
-            // ── CAPTCHA / bot-wall detection ──
-            var title = await page.TitleAsync();
-            if (ContainsCaptchaKeyword(title))
+            var json = await response.Content.ReadAsStringAsync(ct);
+            using var doc = JsonDocument.Parse(json);
+
+            if (!doc.RootElement.TryGetProperty("data", out var dataEl)
+                || dataEl.ValueKind != JsonValueKind.Array)
             {
-                Logger.LogWarning("[Indeed] CAPTCHA/bot-wall detected (title: '{Title}'). Skipping.", title);
-                return results;
+                _logger.LogWarning("[Arbeitnow] Unexpected response format.");
+                return [];
             }
 
-            // ── Wait for job cards container ──
-            try
-            {
-                await page.WaitForSelectorAsync(
-                    "[data-testid='mosaic-provider-jobcards'], #mosaic-provider-jobcards",
-                    new PageWaitForSelectorOptions { Timeout = 15_000 });
-            }
-            catch (TimeoutException)
-            {
-                Logger.LogWarning("[Indeed] Job cards container not found within timeout. Possibly blocked or layout changed.");
-                return results;
-            }
+            var postings = new List<JobPosting>();
 
-            // ── Wait for network idle (swallow — ads keep network busy) ──
-            try
+            foreach (var job in dataEl.EnumerateArray())
             {
-                await page.WaitForLoadStateAsync(LoadState.NetworkIdle,
-                    new PageWaitForLoadStateOptions { Timeout = 10_000 });
-            }
-            catch (TimeoutException)
-            {
-                // Expected — ads/trackers keep requests alive. Proceed with whatever is loaded.
-            }
+                ct.ThrowIfCancellationRequested();
 
-            await HumanDelayAsync(ct);
+                var title   = GetString(job, "title") ?? string.Empty;
+                var url     = GetString(job, "url");
 
-            // ── Extract job cards ──
-            var cards = await page.QuerySelectorAllAsync("li.css-1ac2h1w, div[data-jk]");
-            Logger.LogInformation("[Indeed] Found {Count} job card elements.", cards.Count);
+                if (string.IsNullOrWhiteSpace(url)) continue;
 
-            foreach (var card in cards)
-            {
-                try
+                // Only keep .NET-related jobs (check title + tags array)
+                if (!IsDotNetJob(title, job)) continue;
+
+                var company  = GetString(job, "company_name") ?? "Unknown";
+                var location = GetString(job, "location") ?? "Remote";
+
+                // created_at is a Unix timestamp (seconds since epoch)
+                DateTime postedDate = DateTime.UtcNow;
+                if (job.TryGetProperty("created_at", out var createdEl)
+                    && createdEl.ValueKind == JsonValueKind.Number
+                    && createdEl.TryGetInt64(out var unixTs))
                 {
-                    var titleText = await ExtractTextAsync(card,
-                        "[data-testid='jobTitle'] span, h2.jobTitle a span, h2.jobTitle span");
-                    var company   = await ExtractTextAsync(card,
-                        "[data-testid='company-name'], span.css-1h7lukg");
-                    var location  = await ExtractTextAsync(card,
-                        "[data-testid='text-location'], div.css-1restlb");
-                    var dateText  = await ExtractTextAsync(card,
-                        "[data-testid='myJobsStateDate'], span.date");
-                    var hrefRaw   = await ExtractAttributeAsync(card,
-                        "a.jcs-JobTitle[href], h2.jobTitle a[href]", "href");
-
-                    if (string.IsNullOrWhiteSpace(titleText) || string.IsNullOrWhiteSpace(hrefRaw))
-                        continue;
-
-                    var url        = BuildJobUrl(hrefRaw);
-                    var postedDate = ParseRelativeDate(dateText);
-                    var workModel  = DetermineWorkModel(location);
-
-                    results.Add(new JobPosting
-                    {
-                        Title          = titleText.Trim(),
-                        Company        = company?.Trim() ?? "Unknown",
-                        Location       = location?.Trim() ?? "N/A",
-                        WorkModel      = workModel,
-                        SourcePlatform = SourcePlatform,
-                        Url            = url,
-                        PostedDate     = postedDate,
-                        Description    = $"{titleText} at {company} ({location})"
-                    });
+                    postedDate = DateTimeOffset.FromUnixTimeSeconds(unixTs).UtcDateTime;
                 }
-                catch (Exception ex)
+
+                var isRemote = job.TryGetProperty("remote", out var remoteEl)
+                               && remoteEl.ValueKind == JsonValueKind.True;
+
+                postings.Add(new JobPosting
                 {
-                    Logger.LogDebug(ex, "[Indeed] Failed to parse a job card. Skipping.");
-                }
+                    Title          = title,
+                    Company        = company,
+                    Location       = isRemote ? "Remote" : location,
+                    WorkModel      = isRemote ? "Remote" : "Unknown",
+                    SourcePlatform = SourcePlatform,
+                    Url            = url,
+                    PostedDate     = postedDate,
+                    Description    = null
+                });
             }
 
-            Logger.LogInformation("[Indeed] Fetched {Count} jobs.", results.Count);
+            _logger.LogInformation("[Arbeitnow] Fetched {Count} .NET jobs.", postings.Count);
+            return postings;
         }
-        finally
+        catch (Exception ex)
         {
-            if (page != null)
+            _logger.LogError(ex, "[Arbeitnow] Failed to fetch jobs.");
+            return [];
+        }
+    }
+
+    private static bool IsDotNetJob(string title, JsonElement job)
+    {
+        var titleLower = title.ToLowerInvariant();
+        foreach (var kw in DotNetKeywords)
+            if (titleLower.Contains(kw)) return true;
+
+        // Also scan the tags array (e.g. ["csharp", "dotnet", "azure"])
+        if (job.TryGetProperty("tags", out var tagsEl) && tagsEl.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var tag in tagsEl.EnumerateArray())
             {
-                try { await page.CloseAsync(); }
-                catch { /* best effort */ }
+                if (tag.ValueKind != JsonValueKind.String) continue;
+                var tagLower = tag.GetString()?.ToLowerInvariant() ?? string.Empty;
+                foreach (var kw in DotNetKeywords)
+                    if (tagLower.Contains(kw)) return true;
             }
         }
 
-        return results;
+        return false;
     }
 
-    // ── Private helpers ──────────────────────────────────────────────
-
-    private static bool ContainsCaptchaKeyword(string title)
-    {
-        var lower = title.ToLowerInvariant();
-        return lower.Contains("captcha")
-            || lower.Contains("verify")
-            || lower.Contains("robot")
-            || lower.Contains("unusual traffic")
-            || lower.Contains("blocked");
-    }
-
-    /// <summary>
-    /// Builds the canonical Indeed job URL.
-    /// Prefers the <c>jk=</c> query parameter → viewjob URL.
-    /// Falls back to a full URL if <c>jk</c> is missing.
-    /// </summary>
-    private static string BuildJobUrl(string href)
-    {
-        try
-        {
-            var fullUri = href.StartsWith("http", StringComparison.OrdinalIgnoreCase)
-                ? new Uri(href)
-                : new Uri("https://www.indeed.com" + href);
-
-            var jk = HttpUtility.ParseQueryString(fullUri.Query)["jk"];
-            return !string.IsNullOrWhiteSpace(jk)
-                ? $"https://www.indeed.com/viewjob?jk={jk}"
-                : fullUri.ToString();
-        }
-        catch
-        {
-            return "https://www.indeed.com" + href;
-        }
-    }
-
-    private static async Task<string?> ExtractTextAsync(IElementHandle card, string selector)
-    {
-        try
-        {
-            var el = await card.QuerySelectorAsync(selector);
-            if (el is null) return null;
-            return (await el.InnerTextAsync())?.Trim();
-        }
-        catch { return null; }
-    }
-
-    private static async Task<string?> ExtractAttributeAsync(
-        IElementHandle card, string selector, string attribute)
-    {
-        try
-        {
-            var el = await card.QuerySelectorAsync(selector);
-            if (el is null) return null;
-            return await el.GetAttributeAsync(attribute);
-        }
-        catch { return null; }
-    }
+    private static string? GetString(JsonElement el, string key)
+        => el.TryGetProperty(key, out var prop) && prop.ValueKind == JsonValueKind.String
+            ? prop.GetString()
+            : null;
 }
