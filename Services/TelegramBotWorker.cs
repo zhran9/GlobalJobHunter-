@@ -81,8 +81,7 @@ public sealed class TelegramBotWorker : BackgroundService
                         default:
                             await _bot.SendMessage(
                                 chatId: chatId,
-                                text: "👋 I only understand:\n/start — receive job alerts\n/stop — pause alerts\n/status — see bot stats",
-                                cancellationToken: ct);
+                                text: "👋 I only understand:\n/start — receive job alerts\n/stop — pause alerts\n/status — see bot stats");
                             break;
                     }
                 }
@@ -128,20 +127,12 @@ public sealed class TelegramBotWorker : BackgroundService
 
             await _bot.SendMessage(
                 chatId: chatId,
-                text: $"""
-                       🎉 *Welcome, {EscapeMarkdown(firstName)}!*
-
-                       You're now registered for *GlobalJobHunter* alerts\.
-
-                       🤖 I scan the top job boards every *4 hours* looking for \.NET & Fintech roles\.
-
-                       When I find a great match \(AI score ≥ 65\), I'll send it here instantly\.
-
-                       📌 Commands:
-                       /stop — pause alerts
-                       /status — see bot stats
-                       """,
-                parseMode: ParseMode.MarkdownV2,
+                text: $"🎉 *Welcome, {firstName}!*\n\n" +
+                      "You're now registered for *GlobalJobHunter* alerts.\n\n" +
+                      "🤖 I scan the top job boards every *4 hours* looking for .NET & Fintech roles.\n\n" +
+                      "When I find a great match (AI score ≥ 65), I'll send it here instantly.\n\n" +
+                      "📌 Commands:\n/stop — pause alerts\n/status — see bot stats",
+                parseMode: ParseMode.Markdown,
                 cancellationToken: ct);
         }
         else if (!existing.IsActive)
@@ -155,8 +146,8 @@ public sealed class TelegramBotWorker : BackgroundService
 
             await _bot.SendMessage(
                 chatId: chatId,
-                text: $"✅ *Welcome back, {EscapeMarkdown(firstName)}\\!*\n\nAlerts are re\\-enabled\\. I'll notify you on the next job cycle\\.",
-                parseMode: ParseMode.MarkdownV2,
+                text: $"✅ *Welcome back, {firstName}!*\n\nAlerts are re-enabled. I'll notify you on the next job cycle.",
+                parseMode: ParseMode.Markdown,
                 cancellationToken: ct);
         }
         else
@@ -164,8 +155,8 @@ public sealed class TelegramBotWorker : BackgroundService
             // Already active
             await _bot.SendMessage(
                 chatId: chatId,
-                text: $"✅ You're already registered, {EscapeMarkdown(firstName)}\\! I'll alert you when great \\.NET jobs appear\\.",
-                parseMode: ParseMode.MarkdownV2,
+                text: $"✅ You're already registered, {firstName}! I'll alert you when great .NET jobs appear.",
+                parseMode: ParseMode.Markdown,
                 cancellationToken: ct);
         }
     }
@@ -184,8 +175,8 @@ public sealed class TelegramBotWorker : BackgroundService
 
         await _bot.SendMessage(
             chatId: chatId,
-            text: $"⏸ *Alerts paused*, {EscapeMarkdown(firstName)}\\.\n\nSend /start anytime to resume\\.",
-            parseMode: ParseMode.MarkdownV2,
+            text: $"⏸ *Alerts paused*, {firstName}.\n\nSend /start anytime to resume.",
+            parseMode: ParseMode.Markdown,
             cancellationToken: ct);
 
         _logger.LogInformation("[TelegramBotWorker] User deactivated: {FirstName} ({ChatId})", firstName, chatId);
@@ -203,20 +194,14 @@ public sealed class TelegramBotWorker : BackgroundService
 
         await _bot.SendMessage(
             chatId: chatId,
-            text: $"""
-                   📊 *GlobalJobHunter Stats*
-
-                   👥 Total users: *{totalUsers}*
-                   ✅ Active users: *{activeUsers}*
-                   🔍 Jobs scanned: *{totalJobs}*
-                   🎯 Matches found: *{matchedJobs}*
-                   ⏱ Scan interval: *every 4 hours*
-                   """,
-            parseMode: ParseMode.MarkdownV2,
+            text: $"📊 *GlobalJobHunter Stats*\n\n" +
+                  $"👥 Total users: *{totalUsers}*\n" +
+                  $"✅ Active users: *{activeUsers}*\n" +
+                  $"🔍 Jobs scanned: *{totalJobs}*\n" +
+                  $"🎯 Matches found: *{matchedJobs}*\n" +
+                  $"⏱ Scan interval: *every 4 hours*",
+            parseMode: ParseMode.Markdown,
             cancellationToken: ct);
     }
 
-    private static string EscapeMarkdown(string text) =>
-        text.Replace(".", "\\.").Replace("!", "\\!").Replace("-", "\\-")
-            .Replace("(", "\\(").Replace(")", "\\)").Replace("|", "\\|");
 }
