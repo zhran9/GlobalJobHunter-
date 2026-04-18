@@ -11,7 +11,7 @@ appsettings.Development.json
 *.db
 *.db-shm
 *.db-wal
-data/
+/data/
 
 ## Secrets — NEVER commit
 .env
